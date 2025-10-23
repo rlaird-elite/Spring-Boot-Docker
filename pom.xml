@@ -5,44 +5,56 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.0</version> <!-- You can update this version -->
+        <version>3.2.0</version> <!-- Or your Spring Boot version -->
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.example</groupId>
-    <artifactId>docker-demo</artifactId>
+    <artifactId>demo</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>docker-demo</name>
-    <description>Demo project for Spring Boot with Docker</description>
+    <name>demo</name>
+    <description>Demo project for Spring Boot</description>
     <properties>
         <java.version>17</java.version>
+        <!-- Explicitly define Lombok version for consistency -->
+        <lombok.version>1.18.30</lombok.version>
     </properties>
     <dependencies>
-        <!-- For creating web applications and REST APIs -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- (Optional) A good starter for a database-driven app -->
+        <!-- Added Data JPA for database access -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+
+        <!-- Added H2 in-memory database -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- KEY dependency for live reloading during development -->
+        <!--
+          LOMBOK DEPENDENCY:
+          We are keeping this as-is. The spring-boot-parent
+          knows how to handle it.
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>provided</scope> <!-- 'provided' is correct -->
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <scope>runtime</scope>
             <optional>true</optional>
         </dependency>
-
-        <!-- For testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -55,8 +67,44 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
             </plugin>
+
+            <!--
+              FIX V3: EXPLICITLY SETTING COMPILER SOURCE/TARGET
+              We are now telling the plugin to explicitly use Java 17.
+              This will force it to use the correct JDK (17) and
+              should resolve the 'TypeTag :: UNKNOWN' error.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version> <!-- Using a modern compiler plugin -->
+                <configuration>
+                    <!-- These lines force the plugin to use Java 17 -->
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <!-- End of fix -->
+
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version> <!-- Use property -->
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
         </plugins>
     </build>
 
 </project>
+
