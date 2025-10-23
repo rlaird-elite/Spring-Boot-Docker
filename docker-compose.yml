@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  app:
+    # We use a base image that has both Maven and the correct Java version
+    image: maven:3.9.6-eclipse-temurin-17
+    
+    # The command to run the app with devtools and remote debugging enabled
+    # This is the magic for live-reload and debugging!
+    command: >
+      mvn spring-boot:run 
+      -Dspring-boot.run.jvmArguments="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+      
+    working_dir: /app
+    
+    volumes:
+      # 1. Mounts your current project directory into the container's /app directory
+      - .:/app
+      # 2. Mounts your local Maven cache into the container
+      #    This prevents re-downloading dependencies every time!
+      #    Note: On Windows, you might need to adjust ~/.m2 to the full path C:/Users/YourUser/.m2
+      - ~/.m2:/root/.m2
+      
+    ports:
+      # 1. Maps your local port 8080 to the container's port 8080 (for the web app)
+      - "8080:8080"
+      # 2. Maps your local port 5005 to the container's port 5005 (for the Java Debugger)
+      - "5005:5005"
