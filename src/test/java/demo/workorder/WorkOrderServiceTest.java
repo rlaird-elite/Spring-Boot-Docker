@@ -11,6 +11,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -127,6 +128,27 @@ public class WorkOrderServiceTest {
         });
 
         assertEquals("Vendor not found with id: 99", exception.getMessage());
+    }
+
+    @Test
+    void testGetAllWorkOrders() {
+        // Arrange
+        Property property = new Property();
+        property.setId(1L);
+        property.setAddress("123 Main St");
+
+        WorkOrder prop1 = new WorkOrder();
+        prop1.setProperty(property);
+        when(workOrderRepository.findAll()).thenReturn(List.of(prop1));
+
+        // Act
+        List<WorkOrder> workOrders = workOrderService.getAllWorkOrders();
+
+        // Assert
+        assertNotNull(workOrders);
+        assertEquals(1, workOrders.size());
+        assertEquals(property, workOrders.get(0).getProperty());
+        verify(workOrderRepository).findAll(); // Verify the repo was called
     }
 }
 

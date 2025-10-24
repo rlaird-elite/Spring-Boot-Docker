@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -22,6 +23,12 @@ public class WorkOrderController {
     // We need a simple constructor for the @ControllerAdvice in the test
     public WorkOrderController(WorkOrderService workOrderService) {
         this.workOrderService = workOrderService;
+    }
+
+    @GetMapping
+    public ResponseEntity<List<WorkOrder>> getAllWorkOrders() {
+        List<WorkOrder> workOrders = workOrderService.getAllWorkOrders();
+        return new ResponseEntity<>(workOrders, HttpStatus.OK);
     }
 
     /**

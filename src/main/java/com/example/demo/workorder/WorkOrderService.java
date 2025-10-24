@@ -4,43 +4,44 @@ import com.example.demo.property.Property;
 import com.example.demo.property.PropertyRepository;
 import com.example.demo.vendor.Vendor;
 import com.example.demo.vendor.VendorRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.NoSuchElementException;
 
 @Service
 public class WorkOrderService {
 
-    private final WorkOrderRepository workOrderRepository;
-    private final PropertyRepository propertyRepository;
-    private final VendorRepository vendorRepository;
+    @Autowired
+    private WorkOrderRepository workOrderRepository;
 
-    public WorkOrderService(WorkOrderRepository workOrderRepository,
-                            PropertyRepository propertyRepository,
-                            VendorRepository vendorRepository) {
-        this.workOrderRepository = workOrderRepository;
-        this.propertyRepository = propertyRepository;
-        this.vendorRepository = vendorRepository;
+    @Autowired
+    private PropertyRepository propertyRepository;
+
+    @Autowired
+    private VendorRepository vendorRepository;
+
+    // --- NEW METHOD ---
+    public List<WorkOrder> getAllWorkOrders() {
+        return workOrderRepository.findAll();
     }
+    // --- END NEW METHOD ---
 
     public WorkOrder createWorkOrder(WorkOrder workOrder, Long propertyId, Long vendorId) {
-        // 1. Find the parent property
         Property property = propertyRepository.findById(propertyId)
-                .orElseThrow(() -> new RuntimeException("Property not found with id: " + propertyId));
+                .orElseThrow(() -> new NoSuchElementException("Property not found with id: " + propertyId));
 
-        // 2. Find the vendor (if a vendorId was provided)
         Vendor vendor = null;
         if (vendorId != null) {
             vendor = vendorRepository.findById(vendorId)
-                    .orElseThrow(() -> new RuntimeException("Vendor not found with id: " + vendorId));
+                    .orElseThrow(() -> new NoSuchElementException("Vendor not found with id: " + vendorId));
         }
 
-        // 3. Set the relationships
         workOrder.setProperty(property);
         workOrder.setVendor(vendor);
-
-        // --- FIX: Set the default status in the service ---
         workOrder.setStatus("PENDING");
 
-        // 4. Save and return
         return workOrderRepository.save(workOrder);
     }
 }
