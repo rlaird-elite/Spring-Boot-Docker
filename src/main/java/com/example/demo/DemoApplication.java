@@ -2,20 +2,18 @@ package com.example.demo;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Main entry point for the Spring Boot application.
+ * This class should only be responsible for starting the app.
+ * All API logic is handled in the @RestController classes (e.g., PropertyController).
+ */
 @SpringBootApplication
-@RestController
 public class DemoApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(DemoApplication.class, args);
     }
 
-    @GetMapping("/")
-    public String hello() {
-        // This is the message we'll change to test live-reloading
-        return "Hello from Windows";
-    }
 }
+
