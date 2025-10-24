@@ -14,7 +14,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
 
     @Override
-    public User register(UserRegistrationRequest request) {
+    public User registerNewUser(UserRegistrationRequest request) {
         // 1. Check if user already exists
         if (userRepository.findByUsername(request.getUsername()).isPresent()) {
             // Throw the exception expected by the test

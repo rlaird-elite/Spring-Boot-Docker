@@ -51,7 +51,7 @@ public class AuthServiceTest {
         when(userRepository.save(any(User.class))).thenReturn(savedUser);
 
         // WHEN
-        User result = authService.register(request);
+        User result = authService.registerNewUser(request);
 
         // THEN
         assertNotNull(result);
@@ -72,6 +72,6 @@ public class AuthServiceTest {
         when(userRepository.findByUsername(request.getUsername())).thenReturn(Optional.of(existingUser));
 
         // WHEN / THEN
-        assertThrows(ResponseStatusException.class, () -> authService.register(request));
+        assertThrows(ResponseStatusException.class, () -> authService.registerNewUser(request));
     }
 }
