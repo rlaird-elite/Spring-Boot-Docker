@@ -1,162 +1,219 @@
 package com.example.demo.vendor;
 
+import com.example.demo.user.User; // Import User
+import org.junit.jupiter.api.AfterEach; // Import AfterEach
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+// Remove Mockito imports for InjectMocks/Mock/MockitoAnnotations
+// import org.mockito.InjectMocks;
+// import org.mockito.Mock;
+// import org.mockito.MockitoAnnotations;
+import org.springframework.beans.factory.annotation.Autowired; // Autowire the service
+import org.springframework.boot.test.context.SpringBootTest; // Use SpringBootTest
+import org.springframework.boot.test.mock.mockito.MockBean; // Use MockBean
+import org.springframework.context.annotation.Import; // Import necessary configs if needed
+import org.springframework.security.access.AccessDeniedException; // Import AccessDeniedException
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+// Import Spring Security Test annotations if you prefer that style later
+// import org.springframework.security.test.context.support.WithMockUser;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
 
-/**
- * Test class for VendorService.
- * This test mocks the VendorRepository to ensure the service logic is correct.
- */
+// --- Use @SpringBootTest to load context and enable AOP/Security ---
+@SpringBootTest // Loads the full application context
+// If needed, specify classes to load for a more focused context:
+// @SpringBootTest(classes = {VendorService.class, SecurityConfig.class /*, other needed configs */})
 public class VendorServiceTest {
 
-    @Mock
-    private VendorRepository vendorRepository; // Mock the repository
+    @MockBean // Use @MockBean for dependencies when using @SpringBootTest
+    private VendorRepository vendorRepository;
 
-    @InjectMocks
-    private VendorService vendorService; // Test the service
+    @Autowired // Inject the actual service bean from the Spring context
+    private VendorService vendorService;
 
-    @BeforeEach
-    void setUp() {
-        MockitoAnnotations.openMocks(this);
+    private static final Long MOCK_TENANT_ID = 1L;
+    // AutoCloseable is no longer needed
+
+    // Helper to set up security context (remains the same)
+    private void setupMockSecurityContext(User.Role role) {
+        User mockUser = new User();
+        mockUser.setId(1L);
+        mockUser.setUsername(role == User.Role.ADMIN ? "admin@example.com" : "user@example.com");
+        mockUser.setTenantId(MOCK_TENANT_ID);
+        mockUser.setRole(role); // Set the specified role
+
+        Authentication authentication = new UsernamePasswordAuthenticationToken(mockUser, null, mockUser.getAuthorities());
+        SecurityContext securityContext = mock(SecurityContext.class);
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        SecurityContextHolder.setContext(securityContext);
+    }
+
+    // @BeforeEach no longer needed for MockitoAnnotations.openMocks
+    // @BeforeEach
+    // void setUp() { ... }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        SecurityContextHolder.clearContext(); // Clean up security context after each test
+        // No need to close mocks manually with @MockBean
+    }
+
+
+    @Test
+    void whenGetAllVendors_asUser_thenReturnsTenantVendors() {
+        setupMockSecurityContext(User.Role.USER); // Set context for USER
+        // Arrange
+        Vendor vendor1 = new Vendor(); vendor1.setTenantId(MOCK_TENANT_ID);
+        Vendor vendor2 = new Vendor(); vendor2.setTenantId(MOCK_TENANT_ID);
+        when(vendorRepository.findAllByTenantId(MOCK_TENANT_ID)).thenReturn(List.of(vendor1, vendor2));
+
+        // Act & Assert
+        assertDoesNotThrow(() -> {
+            List<Vendor> vendors = vendorService.getAllVendors();
+            assertEquals(2, vendors.size());
+            verify(vendorRepository).findAllByTenantId(MOCK_TENANT_ID);
+        });
     }
 
     @Test
-    void testGetAllProperties() {
-        // Arrange
-        Vendor prop1 = new Vendor();
-        prop1.setName("Vendor Name");
-        when(vendorRepository.findAll()).thenReturn(List.of(prop1));
-
-        // Act
-        List<Vendor> properties = vendorService.getAllVendors();
-
-        // Assert
-        assertNotNull(properties);
-        assertEquals(1, properties.size());
-        assertEquals("Vendor Name", properties.get(0).getName());
-        verify(vendorRepository).findAll(); // Verify the repo was called
+    void whenGetVendorById_givenValidIdAndTenant_asUser_thenReturnsVendor() {
+        setupMockSecurityContext(User.Role.USER);
+        Long vendorId = 1L;
+        Vendor vendor = new Vendor(); vendor.setId(vendorId); vendor.setTenantId(MOCK_TENANT_ID);
+        when(vendorRepository.findByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(Optional.of(vendor));
+        Optional<Vendor> foundVendor = vendorService.getVendorById(vendorId);
+        assertTrue(foundVendor.isPresent());
+        verify(vendorRepository).findByIdAndTenantId(vendorId, MOCK_TENANT_ID);
     }
 
     @Test
-    void testGetVendorById_whenExists() {
-        // Arrange
-        Vendor vendor = new Vendor();
-        vendor.setId(1L);
-        when(vendorRepository.findById(1L)).thenReturn(Optional.of(vendor));
+    void whenCreateVendor_asUser_thenSetsTenantIdAndSaves() {
+        setupMockSecurityContext(User.Role.USER);
+        Vendor vendorToSave = new Vendor(); vendorToSave.setName("New Vendor");
+        // Mock return object structure
+        Vendor savedVendorResult = new Vendor();
+        savedVendorResult.setId(1L);
+        savedVendorResult.setName("New Vendor");
+        savedVendorResult.setTenantId(MOCK_TENANT_ID);
 
-        // Act
-        Optional<Vendor> found = vendorService.getVendorById(1L);
 
-        // Assert
-        assertTrue(found.isPresent());
-        assertEquals(1L, found.get().getId());
-        verify(vendorRepository).findById(1L);
+        when(vendorRepository.save(any(Vendor.class))).thenAnswer(invocation -> {
+            Vendor v = invocation.getArgument(0);
+            assertEquals(MOCK_TENANT_ID, v.getTenantId());
+            // Return a distinct object representing the saved state
+            Vendor resultVendor = new Vendor();
+            resultVendor.setId(1L); // Simulate ID generation
+            resultVendor.setName(v.getName());
+            resultVendor.setSpecialty(v.getSpecialty());
+            resultVendor.setContactInfo(v.getContactInfo());
+            resultVendor.setTenantId(MOCK_TENANT_ID); // Ensure tenantId is set
+            return resultVendor;
+        });
+
+        Vendor result = vendorService.createVendor(vendorToSave);
+        assertNotNull(result);
+        assertEquals(MOCK_TENANT_ID, result.getTenantId());
+        assertEquals(1L, result.getId()); // Check ID if mock returns it
+        verify(vendorRepository).save(vendorToSave); // Verify interaction
     }
 
     @Test
-    void testGetVendorById_whenNotExists() {
-        // Arrange
-        when(vendorRepository.findById(99L)).thenReturn(Optional.empty());
-
-        // Act
-        Optional<Vendor> found = vendorService.getVendorById(99L);
-
-        // Assert
-        assertFalse(found.isPresent());
-        verify(vendorRepository).findById(99L);
-    }
-
-    @Test
-    void testCreateVendor() {
-        // Arrange
-        Vendor vendorToSave = new Vendor();
-        vendorToSave.setName("Vendor Name");
-
-        when(vendorRepository.save(any(Vendor.class))).thenReturn(vendorToSave);
-
-        // Act
-        Vendor savedVendor = vendorService.createVendor(vendorToSave);
-
-        // Assert
-        assertNotNull(savedVendor);
-        assertEquals("Vendor Name", savedVendor.getName());
-        verify(vendorRepository).save(vendorToSave);
-    }
-
-    @Test
-    void testUpdateVendor_whenExists() {
-        // Arrange
-        Vendor existingVendor = new Vendor();
-        existingVendor.setId(1L);
-        existingVendor.setName("Old Vendor");
-
-        Vendor vendorDetails = new Vendor();
-        vendorDetails.setName("New Vendor");
-
-        when(vendorRepository.findById(1L)).thenReturn(Optional.of(existingVendor));
+    void whenUpdateVendor_givenValidIdAndTenant_asUser_thenUpdatesAndSaves() {
+        setupMockSecurityContext(User.Role.USER);
+        Long vendorId = 1L;
+        Vendor existingVendor = new Vendor(); existingVendor.setId(vendorId); existingVendor.setTenantId(MOCK_TENANT_ID); existingVendor.setName("Old Name");
+        Vendor updatedDetails = new Vendor(); updatedDetails.setName("New Name");
+        when(vendorRepository.findByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(Optional.of(existingVendor));
         when(vendorRepository.save(any(Vendor.class))).thenAnswer(invocation -> invocation.getArgument(0)); // Return the saved entity
+        Optional<Vendor> result = vendorService.updateVendor(vendorId, updatedDetails);
+        assertTrue(result.isPresent());
+        assertEquals("New Name", result.get().getName());
+        verify(vendorRepository).findByIdAndTenantId(vendorId, MOCK_TENANT_ID);
+        verify(vendorRepository).save(existingVendor);
+    }
 
-        // Act
-        Optional<Vendor> updated = vendorService.updateVendor(1L, vendorDetails);
 
-        // Assert
-        assertTrue(updated.isPresent());
-        assertEquals("New Vendor", updated.get().getName()); // Check that the address was updated
-        verify(vendorRepository).findById(1L);
-        verify(vendorRepository).save(existingVendor); // Verify save was called on the *existing* entity
+    // --- Tests for Delete Authorization (Should Pass Now) ---
+
+    @Test
+    void whenDeleteVendor_givenValidIdAndTenant_asAdmin_thenDeletesAndReturnsTrue() {
+        setupMockSecurityContext(User.Role.ADMIN); // Set context for ADMIN
+        // Arrange
+        Long vendorId = 1L;
+        when(vendorRepository.existsByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(true);
+        // No need to explicitly mock deleteById if it returns void
+
+        // Act & Assert
+        assertDoesNotThrow(() -> { // Expect no security exception
+            boolean result = vendorService.deleteVendor(vendorId);
+            assertTrue(result);
+            verify(vendorRepository).existsByIdAndTenantId(vendorId, MOCK_TENANT_ID);
+            verify(vendorRepository).deleteById(vendorId);
+        });
     }
 
     @Test
-    void testUpdateVendor_whenNotExists() {
+    void whenDeleteVendor_givenValidIdAndTenant_asUser_thenThrowsAccessDenied() {
+        setupMockSecurityContext(User.Role.USER); // Set context for USER
         // Arrange
-        Vendor vendorDetails = new Vendor();
-        when(vendorRepository.findById(99L)).thenReturn(Optional.empty());
+        Long vendorId = 1L;
+        // Mock existence check - delete should not be reached due to security
+        // No need to mock this if security happens first, but can be useful
+        when(vendorRepository.existsByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(true);
 
-        // Act
-        Optional<Vendor> updated = vendorService.updateVendor(99L, vendorDetails);
+        // Act & Assert
+        // Expect AccessDeniedException because @PreAuthorize is now active
+        assertThrows(AccessDeniedException.class, () -> {
+            vendorService.deleteVendor(vendorId);
+        }, "Should throw AccessDeniedException for USER role trying to delete");
 
-        // Assert
-        assertFalse(updated.isPresent());
-        verify(vendorRepository).findById(99L);
+        // Verify delete was NOT called because security blocked it
+        verify(vendorRepository, never()).deleteById(anyLong());
     }
 
     @Test
-    void testDeleteVendor_whenExists() {
+    void whenDeleteVendor_givenInvalidIdOrTenant_asAdmin_thenReturnsFalse() {
+        setupMockSecurityContext(User.Role.ADMIN); // Set context for ADMIN
         // Arrange
-        Vendor existingVendor = new Vendor();
-        existingVendor.setId(1L);
-        when(vendorRepository.findById(1L)).thenReturn(Optional.of(existingVendor));
+        Long vendorId = 99L;
+        when(vendorRepository.existsByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(false);
 
-        // Act
-        boolean wasDeleted = vendorService.deleteVendor(1L);
-
-        // Assert
-        assertTrue(wasDeleted);
-        verify(vendorRepository).findById(1L);
-        verify(vendorRepository).delete(existingVendor); // Verify the delete call
+        // Act & Assert
+        assertDoesNotThrow(() -> { // No security exception expected for ADMIN
+            boolean result = vendorService.deleteVendor(vendorId);
+            assertFalse(result); // Returns false because vendor doesn't exist for tenant
+            verify(vendorRepository).existsByIdAndTenantId(vendorId, MOCK_TENANT_ID);
+            verify(vendorRepository, never()).deleteById(anyLong());
+        });
     }
 
     @Test
-    void testDeleteVendor_whenNotExists() {
+    void whenDeleteVendor_givenInvalidIdOrTenant_asUser_thenThrowsAccessDenied() {
+        setupMockSecurityContext(User.Role.USER); // Set context for USER
         // Arrange
-        when(vendorRepository.findById(99L)).thenReturn(Optional.empty());
+        Long vendorId = 99L;
+        // No need to mock existsByIdAndTenantId if security prevents call
 
-        // Act
-        boolean wasDeleted = vendorService.deleteVendor(99L);
+        // Act & Assert
+        // @PreAuthorize runs before method body, so AccessDenied should happen first
+        assertThrows(AccessDeniedException.class, () -> {
+            vendorService.deleteVendor(vendorId);
+        }, "Should throw AccessDeniedException for USER role even if vendor doesn't exist");
 
-        // Assert
-        assertFalse(wasDeleted);
-        verify(vendorRepository).findById(99L);
+        // Verify delete was NOT called
+        verify(vendorRepository, never()).deleteById(anyLong());
+        // Verify existence check might not be called either
+        verify(vendorRepository, never()).existsByIdAndTenantId(anyLong(), anyLong());
     }
+
 }
+

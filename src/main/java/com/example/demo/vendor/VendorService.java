@@ -1,84 +1,82 @@
 package com.example.demo.vendor;
 
+import com.example.demo.user.User;
+import org.springframework.security.access.prepost.PreAuthorize; // Import PreAuthorize
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Service layer for managing Vendor business logic.
- * This class abstracts the repository from the controller.
- */
 @Service
 public class VendorService {
 
     private final VendorRepository vendorRepository;
 
-    // Inject the repository
     public VendorService(VendorRepository vendorRepository) {
         this.vendorRepository = vendorRepository;
     }
 
-    /**
-     * Retrieves all vendors.
-     * @return A list of all vendors.
-     */
+    // Helper method to get current user's tenant ID
+    private Long getCurrentTenantId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || authentication.getPrincipal().equals("anonymousUser")) {
+            throw new IllegalStateException("User must be authenticated to perform this action.");
+        }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof User) {
+            return ((User) principal).getTenantId();
+        } else {
+            throw new IllegalStateException("Authentication principal is not the expected User type.");
+        }
+    }
+
+    // No specific role needed for reading data (within the tenant)
     public List<Vendor> getAllVendors() {
-        return vendorRepository.findAll();
+        Long tenantId = getCurrentTenantId();
+        return vendorRepository.findAllByTenantId(tenantId);
     }
 
-    /**
-     * Retrieves a single vendor by its ID.
-     * @param id The ID of the vendor.
-     * @return An Optional containing the vendor if found, or empty if not.
-     */
     public Optional<Vendor> getVendorById(Long id) {
-        return vendorRepository.findById(id);
+        Long tenantId = getCurrentTenantId();
+        return vendorRepository.findByIdAndTenantId(id, tenantId);
     }
 
-    /**
-     * Creates and saves a new vendor.
-     * @param vendor The vendor data to save.
-     * @return The saved vendor.
-     */
+    // No specific role needed for creating (within the tenant)
+    @Transactional
     public Vendor createVendor(Vendor vendor) {
+        Long tenantId = getCurrentTenantId();
+        vendor.setTenantId(tenantId);
         return vendorRepository.save(vendor);
     }
 
-    /**
-     * Updates an existing vendor.
-     * @param id The ID of the vendor to update.
-     * @param vendorDetails The new details for the vendor.
-     * @return An Optional containing the updated vendor if it was found, or empty if not.
-     */
+    // No specific role needed for updating (within the tenant)
+    @Transactional
     public Optional<Vendor> updateVendor(Long id, Vendor vendorDetails) {
-        Optional<Vendor> optionalVendor = vendorRepository.findById(id);
-        if (optionalVendor.isPresent()) {
-            Vendor existingVendor = optionalVendor.get();
-            existingVendor.setName(vendorDetails.getName());
-            existingVendor.setServiceType(vendorDetails.getServiceType());
-            existingVendor.setTrade(vendorDetails.getTrade());
-            existingVendor.setPhoneNumber(vendorDetails.getPhoneNumber());
-
-            Vendor updatedVendor = vendorRepository.save(existingVendor);
-            return Optional.of(updatedVendor);
-        } else {
-            return Optional.empty(); // Not found, so can't update
-        }
+        Long tenantId = getCurrentTenantId();
+        return vendorRepository.findByIdAndTenantId(id, tenantId)
+                .map(existingVendor -> {
+                    existingVendor.setName(vendorDetails.getName());
+                    existingVendor.setSpecialty(vendorDetails.getSpecialty());
+                    existingVendor.setContactInfo(vendorDetails.getContactInfo());
+                    return vendorRepository.save(existingVendor);
+                });
     }
 
-    /**
-     * Deletes a vendor by its ID.
-     * @param id The ID of the vendor to delete.
-     * @return true if the vendor was found and deleted, false otherwise.
-     */
+    // --- SECURE THE DELETE METHOD ---
+    @Transactional
+    @PreAuthorize("hasRole('ADMIN')") // Only allow users with ROLE_ADMIN
     public boolean deleteVendor(Long id) {
-        Optional<Vendor> vendorOptional = vendorRepository.findById(id);
-        if (vendorOptional.isPresent()) {
-            vendorRepository.delete(vendorOptional.get());
-            return true; // Found and deleted
+        Long tenantId = getCurrentTenantId();
+        if (vendorRepository.existsByIdAndTenantId(id, tenantId)) {
+            vendorRepository.deleteById(id);
+            return true;
         } else {
-            return false; // Not found
+            return false;
         }
     }
 }
+

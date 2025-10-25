@@ -1,162 +1,208 @@
 package com.example.demo.property;
 
+import com.example.demo.user.User; // Import User
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken; // Security imports
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
 
-/**
- * Test class for PropertyService.
- * This test mocks the PropertyRepository to ensure the service logic is correct.
- */
 public class PropertyServiceTest {
 
     @Mock
-    private PropertyRepository propertyRepository; // Mock the repository
+    private PropertyRepository propertyRepository;
 
     @InjectMocks
-    private PropertyService propertyService; // Test the service
+    private PropertyService propertyService;
+
+    // Define a mock user and tenant ID for tests
+    private static final Long MOCK_TENANT_ID = 1L;
+    private User mockUser;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+
+        // --- Mock Security Context ---
+        mockUser = new User();
+        mockUser.setId(1L); // Assign an ID
+        mockUser.setUsername("test@example.com");
+        mockUser.setTenantId(MOCK_TENANT_ID); // Set the tenant ID for the mock user
+        mockUser.setRole(User.Role.USER); // Set a role
+
+        // Create mock Authentication and SecurityContext
+        Authentication authentication = new UsernamePasswordAuthenticationToken(mockUser, null, mockUser.getAuthorities());
+        SecurityContext securityContext = mock(SecurityContext.class);
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        SecurityContextHolder.setContext(securityContext);
+        // --- End Mock Security Context ---
     }
 
+    // --- Update existing tests to use tenant-aware mocks ---
+
     @Test
-    void testGetAllProperties() {
+    void whenGetAllProperties_thenReturnsTenantProperties() {
         // Arrange
         Property prop1 = new Property();
-        prop1.setAddress("111 First St");
-        when(propertyRepository.findAll()).thenReturn(List.of(prop1));
+        prop1.setTenantId(MOCK_TENANT_ID);
+        Property prop2 = new Property();
+        prop2.setTenantId(MOCK_TENANT_ID);
+        when(propertyRepository.findAllByTenantId(MOCK_TENANT_ID)).thenReturn(List.of(prop1, prop2));
 
         // Act
         List<Property> properties = propertyService.getAllProperties();
 
         // Assert
-        assertNotNull(properties);
-        assertEquals(1, properties.size());
-        assertEquals("111 First St", properties.get(0).getAddress());
-        verify(propertyRepository).findAll(); // Verify the repo was called
+        assertEquals(2, properties.size());
+        verify(propertyRepository).findAllByTenantId(MOCK_TENANT_ID); // Verify correct method called
     }
 
     @Test
-    void testGetPropertyById_whenExists() {
+    void whenGetPropertyById_givenValidIdAndTenant_thenReturnsProperty() {
         // Arrange
+        Long propertyId = 1L;
         Property property = new Property();
-        property.setId(1L);
-        when(propertyRepository.findById(1L)).thenReturn(Optional.of(property));
+        property.setId(propertyId);
+        property.setTenantId(MOCK_TENANT_ID);
+        when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.of(property));
 
         // Act
-        Optional<Property> found = propertyService.getPropertyById(1L);
+        Optional<Property> foundProperty = propertyService.getPropertyById(propertyId);
 
         // Assert
-        assertTrue(found.isPresent());
-        assertEquals(1L, found.get().getId());
-        verify(propertyRepository).findById(1L);
+        assertTrue(foundProperty.isPresent());
+        assertEquals(propertyId, foundProperty.get().getId());
+        verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
     }
 
     @Test
-    void testGetPropertyById_whenNotExists() {
+    void whenGetPropertyById_givenInvalidTenant_thenReturnsEmpty() {
         // Arrange
-        when(propertyRepository.findById(99L)).thenReturn(Optional.empty());
+        Long propertyId = 1L;
+        // Assume the repo returns empty if tenant ID doesn't match
+        when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.empty());
 
         // Act
-        Optional<Property> found = propertyService.getPropertyById(99L);
+        Optional<Property> foundProperty = propertyService.getPropertyById(propertyId);
 
         // Assert
-        assertFalse(found.isPresent());
-        verify(propertyRepository).findById(99L);
+        assertFalse(foundProperty.isPresent());
+        verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
     }
 
     @Test
-    void testCreateProperty() {
+    void whenCreateProperty_thenSetsTenantIdAndSaves() {
         // Arrange
-        Property propertyToSave = new Property();
-        propertyToSave.setAddress("123 Main St");
+        Property propertyToSave = new Property(); // Input property doesn't have tenantId yet
+        Property savedProperty = new Property(); // Mock returned property
+        savedProperty.setTenantId(MOCK_TENANT_ID); // Ensure mock return has tenantId
 
-        when(propertyRepository.save(any(Property.class))).thenReturn(propertyToSave);
+        when(propertyRepository.save(any(Property.class))).thenAnswer(invocation -> {
+            Property p = invocation.getArgument(0);
+            // Verify tenantId was set *before* save is called
+            assertEquals(MOCK_TENANT_ID, p.getTenantId());
+            savedProperty.setId(1L); // Simulate ID generation
+            savedProperty.setAddress(p.getAddress()); // Copy other fields
+            // ... copy other fields ...
+            return savedProperty;
+        });
+
 
         // Act
-        Property savedProperty = propertyService.createProperty(propertyToSave);
+        Property result = propertyService.createProperty(propertyToSave);
 
         // Assert
-        assertNotNull(savedProperty);
-        assertEquals("123 Main St", savedProperty.getAddress());
-        verify(propertyRepository).save(propertyToSave);
+        assertNotNull(result);
+        assertEquals(MOCK_TENANT_ID, result.getTenantId());
+        verify(propertyRepository).save(propertyToSave); // Verify save was called
     }
 
     @Test
-    void testUpdateProperty_whenExists() {
+    void whenUpdateProperty_givenValidIdAndTenant_thenUpdatesAndSaves() {
         // Arrange
+        Long propertyId = 1L;
         Property existingProperty = new Property();
-        existingProperty.setId(1L);
+        existingProperty.setId(propertyId);
+        existingProperty.setTenantId(MOCK_TENANT_ID);
         existingProperty.setAddress("Old Address");
 
-        Property propertyDetails = new Property();
-        propertyDetails.setAddress("New Address");
+        Property updatedDetails = new Property();
+        updatedDetails.setAddress("New Address");
 
-        when(propertyRepository.findById(1L)).thenReturn(Optional.of(existingProperty));
-        when(propertyRepository.save(any(Property.class))).thenAnswer(invocation -> invocation.getArgument(0)); // Return the saved entity
+        when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.of(existingProperty));
+        // Mock the save operation for the update
+        when(propertyRepository.save(any(Property.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
 
         // Act
-        Optional<Property> updated = propertyService.updateProperty(1L, propertyDetails);
+        Optional<Property> result = propertyService.updateProperty(propertyId, updatedDetails);
 
         // Assert
-        assertTrue(updated.isPresent());
-        assertEquals("New Address", updated.get().getAddress()); // Check that the address was updated
-        verify(propertyRepository).findById(1L);
-        verify(propertyRepository).save(existingProperty); // Verify save was called on the *existing* entity
+        assertTrue(result.isPresent());
+        assertEquals("New Address", result.get().getAddress());
+        assertEquals(MOCK_TENANT_ID, result.get().getTenantId()); // Tenant ID should remain
+        verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
+        verify(propertyRepository).save(existingProperty); // Verify save was called on the updated object
     }
 
     @Test
-    void testUpdateProperty_whenNotExists() {
+    void whenUpdateProperty_givenInvalidIdOrTenant_thenReturnsEmpty() {
         // Arrange
-        Property propertyDetails = new Property();
-        when(propertyRepository.findById(99L)).thenReturn(Optional.empty());
+        Long propertyId = 99L;
+        Property updatedDetails = new Property();
+        updatedDetails.setAddress("New Address");
+        when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.empty());
 
         // Act
-        Optional<Property> updated = propertyService.updateProperty(99L, propertyDetails);
+        Optional<Property> result = propertyService.updateProperty(propertyId, updatedDetails);
 
         // Assert
-        assertFalse(updated.isPresent());
-        verify(propertyRepository).findById(99L);
+        assertFalse(result.isPresent());
+        verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
+        verify(propertyRepository, never()).save(any(Property.class)); // Ensure save wasn't called
     }
 
     @Test
-    void testDeleteProperty_whenExists() {
+    void whenDeleteProperty_givenValidIdAndTenant_thenDeletesAndReturnsTrue() {
         // Arrange
-        Property existingProperty = new Property();
-        existingProperty.setId(1L);
-        when(propertyRepository.findById(1L)).thenReturn(Optional.of(existingProperty));
+        Long propertyId = 1L;
+        when(propertyRepository.existsByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(true);
+        // No need to mock deleteById, just verify it's called
 
         // Act
-        boolean wasDeleted = propertyService.deleteProperty(1L);
+        boolean result = propertyService.deleteProperty(propertyId);
 
         // Assert
-        assertTrue(wasDeleted);
-        verify(propertyRepository).findById(1L);
-        verify(propertyRepository).delete(existingProperty); // Verify the delete call
+        assertTrue(result);
+        verify(propertyRepository).existsByIdAndTenantId(propertyId, MOCK_TENANT_ID);
+        verify(propertyRepository).deleteById(propertyId); // Verify deleteById was called
     }
 
     @Test
-    void testDeleteProperty_whenNotExists() {
+    void whenDeleteProperty_givenInvalidIdOrTenant_thenReturnsFalse() {
         // Arrange
-        when(propertyRepository.findById(99L)).thenReturn(Optional.empty());
+        Long propertyId = 99L;
+        when(propertyRepository.existsByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(false);
 
         // Act
-        boolean wasDeleted = propertyService.deleteProperty(99L);
+        boolean result = propertyService.deleteProperty(propertyId);
 
         // Assert
-        assertFalse(wasDeleted);
-        verify(propertyRepository).findById(99L);
+        assertFalse(result);
+        verify(propertyRepository).existsByIdAndTenantId(propertyId, MOCK_TENANT_ID);
+        verify(propertyRepository, never()).deleteById(anyLong()); // Ensure deleteById wasn't called
     }
 }
+

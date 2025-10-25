@@ -1,84 +1,93 @@
 package com.example.demo.property;
 
+import com.example.demo.user.User; // Import User
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional; // Import Transactional
 
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Service layer for managing Property business logic.
- * This class abstracts the repository from the controller.
- */
 @Service
 public class PropertyService {
 
     private final PropertyRepository propertyRepository;
+    // No longer needs UserRepository directly, tenantId comes from security context
 
-    // Inject the repository
     public PropertyService(PropertyRepository propertyRepository) {
         this.propertyRepository = propertyRepository;
     }
 
-    /**
-     * Retrieves all properties.
-     * @return A list of all properties.
-     */
+    // --- Helper method to get current user's tenant ID ---
+    private Long getCurrentTenantId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || authentication.getPrincipal().equals("anonymousUser")) {
+            // Handle cases where there is no authenticated user
+            // Depending on your security setup, this might throw an exception earlier
+            // Or you might want to throw a specific exception here
+            throw new IllegalStateException("User must be authenticated to perform this action.");
+        }
+
+        Object principal = authentication.getPrincipal();
+
+        if (principal instanceof User) { // Assuming your UserDetails implementation is your User entity
+            return ((User) principal).getTenantId();
+        } else if (principal instanceof UserDetails) {
+            // If the principal is a standard UserDetails, you might need another way
+            // to fetch the tenantId, perhaps by loading the full User entity
+            // based on the username ((UserDetails) principal).getUsername()
+            // For now, let's assume it's our User entity.
+            throw new IllegalStateException("Unexpected principal type found in security context.");
+        } else {
+            throw new IllegalStateException("Authentication principal is not an instance of UserDetails.");
+        }
+    }
+
+
     public List<Property> getAllProperties() {
-        return propertyRepository.findAll();
+        Long tenantId = getCurrentTenantId();
+        return propertyRepository.findAllByTenantId(tenantId);
     }
 
-    /**
-     * Retrieves a single property by its ID.
-     * @param id The ID of the property.
-     * @return An Optional containing the property if found, or empty if not.
-     */
     public Optional<Property> getPropertyById(Long id) {
-        return propertyRepository.findById(id);
+        Long tenantId = getCurrentTenantId();
+        return propertyRepository.findByIdAndTenantId(id, tenantId);
     }
 
-    /**
-     * Creates and saves a new property.
-     * @param property The property data to save.
-     * @return The saved property.
-     */
+    @Transactional // Good practice for create/update/delete
     public Property createProperty(Property property) {
+        Long tenantId = getCurrentTenantId();
+        property.setTenantId(tenantId); // Ensure the property belongs to the current tenant
         return propertyRepository.save(property);
     }
 
-    /**
-     * Updates an existing property.
-     * @param id The ID of the property to update.
-     * @param propertyDetails The new details for the property.
-     * @return An Optional containing the updated property if it was found, or empty if not.
-     */
+    @Transactional
     public Optional<Property> updateProperty(Long id, Property propertyDetails) {
-        Optional<Property> optionalProperty = propertyRepository.findById(id);
-        if (optionalProperty.isPresent()) {
-            Property existingProperty = optionalProperty.get();
-            existingProperty.setAddress(propertyDetails.getAddress());
-            existingProperty.setType(propertyDetails.getType());
-            existingProperty.setBedrooms(propertyDetails.getBedrooms());
-            existingProperty.setBathrooms(propertyDetails.getBathrooms());
-
-            Property updatedProperty = propertyRepository.save(existingProperty);
-            return Optional.of(updatedProperty);
-        } else {
-            return Optional.empty(); // Not found, so can't update
-        }
+        Long tenantId = getCurrentTenantId();
+        // Find the existing property *belonging to the current tenant*
+        return propertyRepository.findByIdAndTenantId(id, tenantId)
+                .map(existingProperty -> {
+                    existingProperty.setAddress(propertyDetails.getAddress());
+                    existingProperty.setType(propertyDetails.getType());
+                    existingProperty.setBedrooms(propertyDetails.getBedrooms());
+                    existingProperty.setBathrooms(propertyDetails.getBathrooms());
+                    // tenantId does not change during update
+                    return propertyRepository.save(existingProperty);
+                });
     }
 
-    /**
-     * Deletes a property by its ID.
-     * @param id The ID of the property to delete.
-     * @return true if the property was found and deleted, false otherwise.
-     */
+    @Transactional
     public boolean deleteProperty(Long id) {
-        Optional<Property> propertyOptional = propertyRepository.findById(id);
-        if (propertyOptional.isPresent()) {
-            propertyRepository.delete(propertyOptional.get());
-            return true; // Found and deleted
+        Long tenantId = getCurrentTenantId();
+        // Check if the property exists *and* belongs to the current tenant before deleting
+        if (propertyRepository.existsByIdAndTenantId(id, tenantId)) {
+            propertyRepository.deleteById(id); // Standard deleteById is fine after existence check
+            return true;
         } else {
-            return false; // Not found
+            return false;
         }
     }
 }
+
