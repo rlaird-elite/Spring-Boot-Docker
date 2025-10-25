@@ -1,38 +1,51 @@
 package com.example.demo.user;
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
+import com.example.demo.exception.UserAlreadyExistsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional; // Import this
+
+import java.util.Optional;
 
 @Service
-@RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
+    public AuthServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
     @Override
-    public User registerNewUser(UserRegistrationRequest request) {
+    @Transactional // Add Transactional to ensure save operation is atomic
+    public User registerNewUser(UserRegistrationRequest registrationRequest) {
         // 1. Check if user already exists
-        if (userRepository.findByUsername(request.getUsername()).isPresent()) {
-            // Throw the exception expected by the test
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User with this username already exists.");
+        Optional<User> existingUser = userRepository.findByUsername(registrationRequest.getUsername());
+        if (existingUser.isPresent()) {
+            throw new UserAlreadyExistsException("User with email " + registrationRequest.getUsername() + " already exists.");
         }
 
-        // 2. Create the new User entity
+        // 2. Create new user entity
         User newUser = new User();
-        newUser.setUsername(request.getUsername());
+        newUser.setUsername(registrationRequest.getUsername());
+        newUser.setPassword(passwordEncoder.encode(registrationRequest.getPassword()));
 
-        // 3. Encode the password before saving
-        newUser.setPassword(passwordEncoder.encode(request.getPassword()));
+        // --- THIS IS THE FIX ---
+        // Assign a default Tenant ID for now. We'll replace 1L later
+        // when we have a proper multi-tenancy implementation.
+        newUser.setTenantId(1L);
+        // --- END OF FIX ---
 
-        // 4. Set Tenant ID and Role
-        newUser.setTenantId(request.getTenantId());
-        newUser.setRole(request.getRole());
+        // Assign a default role (e.g., USER) - ensure the Role enum exists in User.java
+        newUser.setRole(User.Role.USER); // Assuming USER role exists
 
-        // 5. Save and return the new user
+        // 3. Save the new user
         return userRepository.save(newUser);
     }
+
+    // Login logic would typically be handled by Spring Security's AuthenticationManager,
+    // not directly in this service, but you could add helper methods if needed.
 }
+
