@@ -10,36 +10,36 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
+import java.util.Map; // Import Map
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/api/auth") // Base path for authentication endpoints
 public class AuthController {
 
     private final AuthService authService;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
-    private final UserRepository userRepository;
+    // --- UserRepository dependency REMOVED ---
 
+    // Updated Constructor (UserRepository removed)
     public AuthController(AuthService authService,
                           AuthenticationManager authenticationManager,
-                          JwtTokenProvider jwtTokenProvider,
-                          UserRepository userRepository) {
+                          JwtTokenProvider jwtTokenProvider) {
         this.authService = authService;
         this.authenticationManager = authenticationManager;
         this.jwtTokenProvider = jwtTokenProvider;
-        this.userRepository = userRepository;
     }
 
     @PostMapping("/register")
-    public ResponseEntity<User> registerUser(@Valid @RequestBody UserRegistrationRequest request) {
-        User savedUser = authService.registerNewUser(request);
-        return new ResponseEntity<>(savedUser, HttpStatus.CREATED);
+    public ResponseEntity<User> registerUser(@Valid @RequestBody UserRegistrationRequest registrationRequest) {
+        User registeredUser = authService.registerNewUser(registrationRequest);
+        // Typically return 200 OK or 201 Created for registration
+        return ResponseEntity.ok(registeredUser);
     }
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> loginUser(@Valid @RequestBody LoginRequest loginRequest) {
-        // Authenticate the user
+        // Authenticate the user using Spring Security's AuthenticationManager
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
                         loginRequest.getUsername(),
@@ -47,33 +47,22 @@ public class AuthController {
                 )
         );
 
-        // Set the authentication in the security context
+        // If authentication is successful, set it in the SecurityContext
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
         // Generate the JWT token
-        String token = jwtTokenProvider.generateToken(authentication);
+        String jwt = jwtTokenProvider.generateToken(authentication);
 
-        // Get user details to return in the response
-        User user = userRepository.findByUsername(authentication.getName())
-                .orElseThrow(() -> new RuntimeException("User not found after authentication"));
-
-        // Create and return the response
-        LoginResponse response = new LoginResponse(
-                token,
-                user.getUsername(),
-                user.getRole(),
-                user.getTenantId()
-        );
-
-        return ResponseEntity.ok(response);
+        // Return the token in the response body
+        return ResponseEntity.ok(new LoginResponse(jwt));
     }
 
-    // This local handler is fine, but our GlobalExceptionHandler is better
+    // Exception handler specific to this controller (optional, can be global)
+    // Updated to return a JSON object (Map) instead of a String
     @ExceptionHandler(UserAlreadyExistsException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ResponseEntity<Map<String, String>> handleUserAlreadyExists(UserAlreadyExistsException ex) {
-        Map<String, String> errorResponse = Map.of("message", ex.getMessage());
-        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+    @ResponseStatus(HttpStatus.CONFLICT) // Set HTTP status to 409 Conflict
+    public Map<String, String> handleUserAlreadyExists(UserAlreadyExistsException ex) {
+        return Map.of("message", ex.getMessage());
     }
 }
 

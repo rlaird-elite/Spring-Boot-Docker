@@ -1,9 +1,11 @@
 package com.example.demo.user;
 
 import com.example.demo.exception.UserAlreadyExistsException;
+import com.example.demo.tenant.Tenant; // Import Tenant
+import com.example.demo.tenant.TenantRepository; // Import TenantRepository
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional; // Import this
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -12,14 +14,19 @@ public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final TenantRepository tenantRepository; // Inject TenantRepository
 
-    public AuthServiceImpl(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    // Updated Constructor
+    public AuthServiceImpl(UserRepository userRepository,
+                           PasswordEncoder passwordEncoder,
+                           TenantRepository tenantRepository) { // Add tenantRepository
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.tenantRepository = tenantRepository; // Assign tenantRepository
     }
 
     @Override
-    @Transactional // Add Transactional to ensure save operation is atomic
+    @Transactional
     public User registerNewUser(UserRegistrationRequest registrationRequest) {
         // 1. Check if user already exists
         Optional<User> existingUser = userRepository.findByUsername(registrationRequest.getUsername());
@@ -27,25 +34,64 @@ public class AuthServiceImpl implements AuthService {
             throw new UserAlreadyExistsException("User with email " + registrationRequest.getUsername() + " already exists.");
         }
 
+        // --- Determine or Create Tenant ---
+        Long tenantIdToAssign;
+        long tenantCount = tenantRepository.count();
+
+        if (tenantCount == 0) {
+            // First user registration - create a new tenant
+            String tenantName = extractTenantName(registrationRequest.getUsername());
+            Optional<Tenant> existingTenant = tenantRepository.findByName(tenantName);
+            if(existingTenant.isPresent()) {
+                tenantIdToAssign = existingTenant.get().getId();
+            } else {
+                Tenant newTenant = new Tenant();
+                newTenant.setName(tenantName);
+                Tenant savedTenant = tenantRepository.save(newTenant);
+                tenantIdToAssign = savedTenant.getId();
+            }
+
+        } else {
+            // Subsequent registrations - assign to a default tenant (ID 1L)
+            tenantIdToAssign = tenantRepository.findById(1L)
+                    .orElseThrow(() -> new IllegalStateException("Default tenant with ID 1 not found. Ensure it exists or handle this case."))
+                    .getId();
+        }
+        // --- End Tenant Logic ---
+
+
         // 2. Create new user entity
         User newUser = new User();
         newUser.setUsername(registrationRequest.getUsername());
         newUser.setPassword(passwordEncoder.encode(registrationRequest.getPassword()));
+        newUser.setTenantId(tenantIdToAssign); // Use the determined tenant ID
 
-        // --- THIS IS THE FIX ---
-        // Assign a default Tenant ID for now. We'll replace 1L later
-        // when we have a proper multi-tenancy implementation.
-        newUser.setTenantId(1L);
-        // --- END OF FIX ---
+        // --- Ensure Role is set ---
+        // Explicitly set the Role for the new user
+        newUser.setRole(User.Role.USER); // Default new users to USER role
+        // --- End Role setting ---
 
-        // Assign a default role (e.g., USER) - ensure the Role enum exists in User.java
-        newUser.setRole(User.Role.USER); // Assuming USER role exists
 
         // 3. Save the new user
-        return userRepository.save(newUser);
+        // The save method MUST return the entity with the role set
+        User savedUser = userRepository.save(newUser);
+
+        // Defensive check (optional, for debugging):
+        // if (savedUser.getRole() == null) {
+        //     System.err.println("!!! Role is null AFTER save for user: " + savedUser.getUsername());
+        // }
+
+        return savedUser; // Return the user saved by the repository
     }
 
-    // Login logic would typically be handled by Spring Security's AuthenticationManager,
-    // not directly in this service, but you could add helper methods if needed.
+    // Helper method to extract a tenant name (example implementation)
+    private String extractTenantName(String email) {
+        if (email != null && email.contains("@")) {
+            String domain = email.substring(email.indexOf('@') + 1);
+            return domain.split("\\.")[0]; // e.g., "example" from "user@example.com"
+        }
+        return "DefaultTenant"; // Fallback name
+    }
+
 }
 
