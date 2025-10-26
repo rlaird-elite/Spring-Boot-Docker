@@ -1,5 +1,6 @@
 package com.example.demo.workorder;
 
+import com.example.demo.permission.Permission; // Import Permission
 import com.example.demo.property.Property;
 import com.example.demo.property.PropertyRepository;
 import com.example.demo.user.User;
@@ -17,15 +18,16 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.HashSet; // Import HashSet
 import java.util.List;
 import java.util.Optional;
+import java.util.Set; // Import Set
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
-// --- Use @SpringBootTest to load context and enable AOP/Security ---
 @SpringBootTest // Loads the full application context
 public class WorkOrderServiceTest {
 
@@ -42,13 +44,31 @@ public class WorkOrderServiceTest {
     // Define mock user and tenant ID
     private static final Long MOCK_TENANT_ID = 1L;
 
+    // --- Define mock permissions ---
+    private Permission mockUserPermission;
+    private Permission mockAdminDeleteWorkOrderPermission; // Specific admin permission
+    // --- End mock permissions ---
+
+
     // Helper to set up security context
-    private void setupMockSecurityContext(User.Role role) {
+    private void setupMockSecurityContext(boolean isAdmin) {
         User mockUser = new User();
-        mockUser.setId(1L);
-        mockUser.setUsername(role == User.Role.ADMIN ? "admin@example.com" : "user@example.com");
+        mockUser.setId(isAdmin ? 2L : 1L);
+        mockUser.setUsername(isAdmin ? "admin@example.com" : "user@example.com");
         mockUser.setTenantId(MOCK_TENANT_ID);
-        mockUser.setRole(role); // Set the specified role
+
+        // --- Set Permissions based on isAdmin flag ---
+        Set<Permission> permissions = new HashSet<>();
+        if (mockUserPermission != null) {
+            permissions.add(mockUserPermission);
+        }
+        // --- FIX: Add the specific admin permission if isAdmin ---
+        if (isAdmin && mockAdminDeleteWorkOrderPermission != null) {
+            permissions.add(mockAdminDeleteWorkOrderPermission); // Add delete permission for ADMIN
+        }
+        // --- END FIX ---
+        mockUser.setPermissions(permissions);
+        // --- End Set Permissions ---
 
         Authentication authentication = new UsernamePasswordAuthenticationToken(mockUser, null, mockUser.getAuthorities());
         SecurityContext securityContext = mock(SecurityContext.class);
@@ -56,31 +76,37 @@ public class WorkOrderServiceTest {
         SecurityContextHolder.setContext(securityContext);
     }
 
+    @BeforeEach
+    void setUpPermissions() {
+        // Initialize mock permission objects
+        mockUserPermission = new Permission("PERMISSION_READ_OWN_DATA");
+        mockUserPermission.setId(100L);
+        // Ensure this permission matches @PreAuthorize in WorkOrderService
+        mockAdminDeleteWorkOrderPermission = new Permission("PERMISSION_DELETE_WORK_ORDER");
+        mockAdminDeleteWorkOrderPermission.setId(102L);
+    }
+
+
     @AfterEach
     void tearDown() throws Exception {
-        SecurityContextHolder.clearContext(); // Clean up security context after each test
+        SecurityContextHolder.clearContext();
     }
 
 
     @Test
     void whenGetAllWorkOrders_asUser_thenReturnsTenantWorkOrders() {
-        setupMockSecurityContext(User.Role.USER); // Set context for USER
-        // Arrange
+        setupMockSecurityContext(false);
         WorkOrder wo1 = new WorkOrder(); wo1.setTenantId(MOCK_TENANT_ID);
         WorkOrder wo2 = new WorkOrder(); wo2.setTenantId(MOCK_TENANT_ID);
         when(workOrderRepository.findAllByTenantId(MOCK_TENANT_ID)).thenReturn(List.of(wo1, wo2));
-
-        // Act
         List<WorkOrder> workOrders = workOrderService.getAllWorkOrders();
-
-        // Assert
         assertEquals(2, workOrders.size());
         verify(workOrderRepository).findAllByTenantId(MOCK_TENANT_ID);
     }
 
     @Test
     void whenGetWorkOrderById_givenValidIdAndTenant_asUser_thenReturnsWorkOrder() {
-        setupMockSecurityContext(User.Role.USER);
+        setupMockSecurityContext(false);
         Long workOrderId = 1L;
         WorkOrder workOrder = new WorkOrder(); workOrder.setId(workOrderId); workOrder.setTenantId(MOCK_TENANT_ID);
         when(workOrderRepository.findByIdAndTenantId(workOrderId, MOCK_TENANT_ID)).thenReturn(Optional.of(workOrder));
@@ -92,8 +118,7 @@ public class WorkOrderServiceTest {
 
     @Test
     void whenCreateWorkOrder_givenValidPropertyAndOptionalVendor_asUser_thenSetsTenantIdAndSaves() {
-        setupMockSecurityContext(User.Role.USER);
-        // Arrange
+        setupMockSecurityContext(false);
         Long propertyId = 10L;
         Long vendorId = 20L;
         WorkOrder workOrderToSave = new WorkOrder();
@@ -105,16 +130,14 @@ public class WorkOrderServiceTest {
         when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.of(mockProperty));
         when(vendorRepository.findByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(Optional.of(mockVendor));
 
-        // Mock the save operation
         when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(invocation -> {
             WorkOrder wo = invocation.getArgument(0);
             assertEquals(MOCK_TENANT_ID, wo.getTenantId());
             assertEquals("PENDING", wo.getStatus());
             assertNotNull(wo.getCreatedAt());
             assertNotNull(wo.getUpdatedAt());
-            // Simulate saving by returning a copy with an ID
             WorkOrder saved = new WorkOrder();
-            saved.setId(1L); // Simulate ID generation
+            saved.setId(1L);
             saved.setDescription(wo.getDescription());
             saved.setStatus(wo.getStatus());
             saved.setTenantId(wo.getTenantId());
@@ -125,10 +148,8 @@ public class WorkOrderServiceTest {
             return saved;
         });
 
-        // Act
         WorkOrder result = workOrderService.createWorkOrder(workOrderToSave, propertyId, vendorId);
 
-        // Assert
         assertNotNull(result);
         assertEquals(MOCK_TENANT_ID, result.getTenantId());
         assertEquals(1L, result.getId());
@@ -141,8 +162,7 @@ public class WorkOrderServiceTest {
 
     @Test
     void whenCreateWorkOrder_givenValidPropertyNoVendor_asUser_thenSetsTenantIdAndSaves() {
-        setupMockSecurityContext(User.Role.USER);
-        // Arrange
+        setupMockSecurityContext(false);
         Long propertyId = 10L;
         WorkOrder workOrderToSave = new WorkOrder();
         workOrderToSave.setDescription("New task");
@@ -154,8 +174,7 @@ public class WorkOrderServiceTest {
         when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(invocation -> {
             WorkOrder wo = invocation.getArgument(0);
             assertEquals(MOCK_TENANT_ID, wo.getTenantId());
-            assertNull(wo.getVendor()); // Verify vendor is null
-            // Simulate saving
+            assertNull(wo.getVendor());
             WorkOrder saved = new WorkOrder();
             saved.setId(1L);
             saved.setDescription(wo.getDescription());
@@ -167,29 +186,25 @@ public class WorkOrderServiceTest {
             return saved;
         });
 
-        // Act
-        WorkOrder result = workOrderService.createWorkOrder(workOrderToSave, propertyId, null); // Pass null for vendorId
+        WorkOrder result = workOrderService.createWorkOrder(workOrderToSave, propertyId, null);
 
-        // Assert
         assertNotNull(result);
         assertEquals(MOCK_TENANT_ID, result.getTenantId());
         assertEquals(mockProperty, result.getProperty());
         assertNull(result.getVendor());
         verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
-        verify(vendorRepository, never()).findByIdAndTenantId(anyLong(), anyLong()); // Verify vendor repo not called
+        verify(vendorRepository, never()).findByIdAndTenantId(anyLong(), anyLong());
         verify(workOrderRepository).save(workOrderToSave);
     }
 
 
     @Test
     void whenCreateWorkOrder_givenInvalidProperty_asUser_thenThrowsAccessDenied() {
-        setupMockSecurityContext(User.Role.USER);
-        // Arrange
-        Long propertyId = 99L; // Non-existent or wrong tenant
+        setupMockSecurityContext(false);
+        Long propertyId = 99L;
         WorkOrder workOrderToSave = new WorkOrder();
         when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.empty());
 
-        // Act & Assert
         assertThrows(AccessDeniedException.class, () -> {
             workOrderService.createWorkOrder(workOrderToSave, propertyId, null);
         });
@@ -199,17 +214,15 @@ public class WorkOrderServiceTest {
 
     @Test
     void whenCreateWorkOrder_givenInvalidVendor_asUser_thenThrowsAccessDenied() {
-        setupMockSecurityContext(User.Role.USER);
-        // Arrange
+        setupMockSecurityContext(false);
         Long propertyId = 10L;
-        Long vendorId = 99L; // Non-existent or wrong tenant
+        Long vendorId = 99L;
         WorkOrder workOrderToSave = new WorkOrder();
         Property mockProperty = new Property(); mockProperty.setId(propertyId); mockProperty.setTenantId(MOCK_TENANT_ID);
 
         when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.of(mockProperty));
         when(vendorRepository.findByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(Optional.empty());
 
-        // Act & Assert
         assertThrows(AccessDeniedException.class, () -> {
             workOrderService.createWorkOrder(workOrderToSave, propertyId, vendorId);
         });
@@ -220,8 +233,7 @@ public class WorkOrderServiceTest {
 
     @Test
     void whenUpdateWorkOrder_givenValidData_asUser_thenUpdatesAndReturns() {
-        setupMockSecurityContext(User.Role.USER);
-        // Arrange
+        setupMockSecurityContext(false);
         Long workOrderId = 1L;
         Long propertyId = 10L;
         Long vendorId = 20L;
@@ -242,10 +254,8 @@ public class WorkOrderServiceTest {
         when(vendorRepository.findByIdAndTenantId(vendorId, MOCK_TENANT_ID)).thenReturn(Optional.of(newVendor));
         when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        // Act
         Optional<WorkOrder> result = workOrderService.updateWorkOrder(workOrderId, updatedDetails, propertyId, vendorId);
 
-        // Assert
         assertTrue(result.isPresent());
         assertEquals("New Description", result.get().getDescription());
         assertEquals("COMPLETE", result.get().getStatus());
@@ -259,8 +269,7 @@ public class WorkOrderServiceTest {
 
     @Test
     void whenUpdateWorkOrderStatus_givenValidIdAndTenant_asUser_thenUpdatesStatus() {
-        setupMockSecurityContext(User.Role.USER);
-        // Arrange
+        setupMockSecurityContext(false);
         Long workOrderId = 1L;
         String newStatus = "COMPLETE";
         WorkOrder existingWorkOrder = new WorkOrder();
@@ -271,85 +280,68 @@ public class WorkOrderServiceTest {
         when(workOrderRepository.findByIdAndTenantId(workOrderId, MOCK_TENANT_ID)).thenReturn(Optional.of(existingWorkOrder));
         when(workOrderRepository.save(any(WorkOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        // Act
         Optional<WorkOrder> result = workOrderService.updateWorkOrderStatus(workOrderId, newStatus);
 
-        // Assert
         assertTrue(result.isPresent());
         assertEquals(newStatus, result.get().getStatus());
         verify(workOrderRepository).findByIdAndTenantId(workOrderId, MOCK_TENANT_ID);
         verify(workOrderRepository).save(existingWorkOrder);
     }
 
-    // --- NEW: Tests for Delete Authorization ---
+    // --- Tests for Delete Authorization ---
 
     @Test
     void whenDeleteWorkOrder_givenValidIdAndTenant_asAdmin_thenDeletesAndReturnsTrue() {
-        setupMockSecurityContext(User.Role.ADMIN); // Set context for ADMIN
-        // Arrange
+        setupMockSecurityContext(true); // Set context for ADMIN
         Long workOrderId = 1L;
         when(workOrderRepository.existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID)).thenReturn(true);
-        // No need to explicitly mock deleteById if it returns void
 
-        // Act & Assert
-        assertDoesNotThrow(() -> { // Expect no security exception
+        assertDoesNotThrow(() -> {
             boolean result = workOrderService.deleteWorkOrder(workOrderId);
             assertTrue(result);
-            verify(workOrderRepository).existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID);
-            verify(workOrderRepository).deleteById(workOrderId);
         });
+        verify(workOrderRepository).existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID);
+        verify(workOrderRepository).deleteById(workOrderId);
     }
 
     @Test
     void whenDeleteWorkOrder_givenValidIdAndTenant_asUser_thenThrowsAccessDenied() {
-        setupMockSecurityContext(User.Role.USER); // Set context for USER
-        // Arrange
+        setupMockSecurityContext(false); // Set context for USER
         Long workOrderId = 1L;
-        // Mock existence check - delete should not be reached due to security
         when(workOrderRepository.existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID)).thenReturn(true);
 
-        // Act & Assert
-        // Expect AccessDeniedException because @PreAuthorize is now active
         assertThrows(AccessDeniedException.class, () -> {
             workOrderService.deleteWorkOrder(workOrderId);
         }, "Should throw AccessDeniedException for USER role trying to delete");
 
-        // Verify delete was NOT called because security blocked it
         verify(workOrderRepository, never()).deleteById(anyLong());
     }
 
     @Test
     void whenDeleteWorkOrder_givenInvalidIdOrTenant_asAdmin_thenReturnsFalse() {
-        setupMockSecurityContext(User.Role.ADMIN); // Set context for ADMIN
-        // Arrange
+        setupMockSecurityContext(true); // Set context for ADMIN
         Long workOrderId = 99L;
         when(workOrderRepository.existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID)).thenReturn(false);
 
-        // Act & Assert
-        assertDoesNotThrow(() -> { // No security exception expected for ADMIN
+        assertDoesNotThrow(() -> {
             boolean result = workOrderService.deleteWorkOrder(workOrderId);
-            assertFalse(result); // Returns false because work order doesn't exist for tenant
-            verify(workOrderRepository).existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID);
-            verify(workOrderRepository, never()).deleteById(anyLong());
+            assertFalse(result);
         });
+        verify(workOrderRepository).existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID);
+        verify(workOrderRepository, never()).deleteById(anyLong());
     }
 
     @Test
     void whenDeleteWorkOrder_givenInvalidIdOrTenant_asUser_thenThrowsAccessDenied() {
-        setupMockSecurityContext(User.Role.USER); // Set context for USER
-        // Arrange
+        setupMockSecurityContext(false); // Set context for USER
         Long workOrderId = 99L;
-        // No need to mock existsByIdAndTenantId if security prevents call
+        when(workOrderRepository.existsByIdAndTenantId(workOrderId, MOCK_TENANT_ID)).thenReturn(false);
 
-        // Act & Assert
-        // @PreAuthorize runs before method body, so AccessDenied should happen first
         assertThrows(AccessDeniedException.class, () -> {
             workOrderService.deleteWorkOrder(workOrderId);
         }, "Should throw AccessDeniedException for USER role even if work order doesn't exist");
 
-        // Verify delete was NOT called
         verify(workOrderRepository, never()).deleteById(anyLong());
-        // Verify existence check might not be called either
         verify(workOrderRepository, never()).existsByIdAndTenantId(anyLong(), anyLong());
     }
 }

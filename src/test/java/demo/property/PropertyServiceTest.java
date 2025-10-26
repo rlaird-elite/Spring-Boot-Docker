@@ -1,208 +1,254 @@
 package com.example.demo.property;
 
-import com.example.demo.user.User; // Import User
+import com.example.demo.permission.Permission; // Import Permission
+import com.example.demo.user.User;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken; // Security imports
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.security.access.AccessDeniedException; // Import AccessDeniedException
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.HashSet; // Import HashSet
 import java.util.List;
 import java.util.Optional;
+import java.util.Set; // Import Set
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
+import com.example.demo.permission.Permission; // Import Permission
+import com.example.demo.user.User;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.security.access.AccessDeniedException; // Import AccessDeniedException
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.util.HashSet; // Import HashSet
+import java.util.List;
+import java.util.Optional;
+import java.util.Set; // Import Set
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.*;
+
+@SpringBootTest // Loads the full application context
 public class PropertyServiceTest {
 
-    @Mock
+    @MockBean // Use @MockBean for dependencies when using @SpringBootTest
     private PropertyRepository propertyRepository;
 
-    @InjectMocks
+    @Autowired // Inject the actual service bean from the Spring context
     private PropertyService propertyService;
 
-    // Define a mock user and tenant ID for tests
+    // Define mock user and tenant ID
     private static final Long MOCK_TENANT_ID = 1L;
-    private User mockUser;
 
-    @BeforeEach
-    void setUp() {
-        MockitoAnnotations.openMocks(this);
+    // --- Define mock permissions ---
+    private Permission mockUserPermission;
+    private Permission mockAdminDeletePropertyPermission; // Specific admin permission
+    // --- End mock permissions ---
 
-        // --- Mock Security Context ---
-        mockUser = new User();
-        mockUser.setId(1L); // Assign an ID
-        mockUser.setUsername("test@example.com");
-        mockUser.setTenantId(MOCK_TENANT_ID); // Set the tenant ID for the mock user
-        mockUser.setRole(User.Role.USER); // Set a role
+    // Helper to set up security context
+    private void setupMockSecurityContext(boolean isAdmin) {
+        User mockUser = new User();
+        mockUser.setId(isAdmin ? 2L : 1L);
+        mockUser.setUsername(isAdmin ? "admin@example.com" : "user@example.com");
+        mockUser.setTenantId(MOCK_TENANT_ID);
 
-        // Create mock Authentication and SecurityContext
+        // --- Set Permissions based on isAdmin flag ---
+        Set<Permission> permissions = new HashSet<>();
+        if (mockUserPermission != null) {
+            permissions.add(mockUserPermission); // All users get the basic permission
+        }
+        // --- FIX: Add the specific admin permission if isAdmin ---
+        if (isAdmin && mockAdminDeletePropertyPermission != null) {
+            permissions.add(mockAdminDeletePropertyPermission); // Add delete permission for ADMIN
+        }
+        // --- END FIX ---
+        mockUser.setPermissions(permissions); // Assign the Set<Permission>
+        // --- End Set Permissions ---
+
         Authentication authentication = new UsernamePasswordAuthenticationToken(mockUser, null, mockUser.getAuthorities());
         SecurityContext securityContext = mock(SecurityContext.class);
         when(securityContext.getAuthentication()).thenReturn(authentication);
         SecurityContextHolder.setContext(securityContext);
-        // --- End Mock Security Context ---
     }
 
-    // --- Update existing tests to use tenant-aware mocks ---
+    @BeforeEach
+    void setUpPermissions() {
+        mockUserPermission = new Permission("PERMISSION_READ_OWN_DATA");
+        mockUserPermission.setId(100L);
+        // Ensure this permission matches @PreAuthorize in PropertyService
+        mockAdminDeletePropertyPermission = new Permission("PERMISSION_DELETE_PROPERTY");
+        mockAdminDeletePropertyPermission.setId(103L);
+    }
+
+
+    @AfterEach
+    void tearDown() throws Exception {
+        SecurityContextHolder.clearContext();
+    }
+
 
     @Test
-    void whenGetAllProperties_thenReturnsTenantProperties() {
-        // Arrange
-        Property prop1 = new Property();
-        prop1.setTenantId(MOCK_TENANT_ID);
-        Property prop2 = new Property();
-        prop2.setTenantId(MOCK_TENANT_ID);
+    void whenGetAllProperties_asUser_thenReturnsTenantProperties() {
+        setupMockSecurityContext(false);
+        Property prop1 = new Property(); prop1.setTenantId(MOCK_TENANT_ID);
+        Property prop2 = new Property(); prop2.setTenantId(MOCK_TENANT_ID);
         when(propertyRepository.findAllByTenantId(MOCK_TENANT_ID)).thenReturn(List.of(prop1, prop2));
-
-        // Act
         List<Property> properties = propertyService.getAllProperties();
-
-        // Assert
         assertEquals(2, properties.size());
-        verify(propertyRepository).findAllByTenantId(MOCK_TENANT_ID); // Verify correct method called
+        verify(propertyRepository).findAllByTenantId(MOCK_TENANT_ID);
     }
 
     @Test
-    void whenGetPropertyById_givenValidIdAndTenant_thenReturnsProperty() {
-        // Arrange
+    void whenGetPropertyById_givenValidIdAndTenant_asUser_thenReturnsProperty() {
+        setupMockSecurityContext(false);
         Long propertyId = 1L;
-        Property property = new Property();
-        property.setId(propertyId);
-        property.setTenantId(MOCK_TENANT_ID);
+        Property property = new Property(); property.setId(propertyId); property.setTenantId(MOCK_TENANT_ID);
         when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.of(property));
-
-        // Act
         Optional<Property> foundProperty = propertyService.getPropertyById(propertyId);
-
-        // Assert
         assertTrue(foundProperty.isPresent());
-        assertEquals(propertyId, foundProperty.get().getId());
         verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
     }
 
     @Test
-    void whenGetPropertyById_givenInvalidTenant_thenReturnsEmpty() {
-        // Arrange
+    void whenGetPropertyById_givenInvalidTenant_asUser_thenReturnsEmpty() {
+        setupMockSecurityContext(false);
         Long propertyId = 1L;
-        // Assume the repo returns empty if tenant ID doesn't match
         when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.empty());
-
-        // Act
         Optional<Property> foundProperty = propertyService.getPropertyById(propertyId);
-
-        // Assert
         assertFalse(foundProperty.isPresent());
         verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
     }
 
     @Test
-    void whenCreateProperty_thenSetsTenantIdAndSaves() {
-        // Arrange
-        Property propertyToSave = new Property(); // Input property doesn't have tenantId yet
-        Property savedProperty = new Property(); // Mock returned property
-        savedProperty.setTenantId(MOCK_TENANT_ID); // Ensure mock return has tenantId
+    void whenCreateProperty_asUser_thenSetsTenantIdAndSaves() {
+        setupMockSecurityContext(false);
+        Property propertyToSave = new Property(); propertyToSave.setAddress("New Address");
+        Property savedPropertyResult = new Property();
+        savedPropertyResult.setId(1L);
+        savedPropertyResult.setAddress("New Address");
+        savedPropertyResult.setTenantId(MOCK_TENANT_ID);
 
         when(propertyRepository.save(any(Property.class))).thenAnswer(invocation -> {
             Property p = invocation.getArgument(0);
-            // Verify tenantId was set *before* save is called
             assertEquals(MOCK_TENANT_ID, p.getTenantId());
-            savedProperty.setId(1L); // Simulate ID generation
-            savedProperty.setAddress(p.getAddress()); // Copy other fields
-            // ... copy other fields ...
-            return savedProperty;
+            Property resultProp = new Property();
+            resultProp.setId(1L);
+            resultProp.setAddress(p.getAddress());
+            resultProp.setType(p.getType());
+            resultProp.setBedrooms(p.getBedrooms());
+            resultProp.setBathrooms(p.getBathrooms());
+            resultProp.setTenantId(MOCK_TENANT_ID);
+            return resultProp;
         });
 
-
-        // Act
         Property result = propertyService.createProperty(propertyToSave);
-
-        // Assert
         assertNotNull(result);
         assertEquals(MOCK_TENANT_ID, result.getTenantId());
-        verify(propertyRepository).save(propertyToSave); // Verify save was called
+        assertEquals(1L, result.getId());
+        verify(propertyRepository).save(propertyToSave);
     }
 
     @Test
-    void whenUpdateProperty_givenValidIdAndTenant_thenUpdatesAndSaves() {
-        // Arrange
+    void whenUpdateProperty_givenValidIdAndTenant_asUser_thenUpdatesAndSaves() {
+        setupMockSecurityContext(false);
         Long propertyId = 1L;
-        Property existingProperty = new Property();
-        existingProperty.setId(propertyId);
-        existingProperty.setTenantId(MOCK_TENANT_ID);
-        existingProperty.setAddress("Old Address");
-
-        Property updatedDetails = new Property();
-        updatedDetails.setAddress("New Address");
-
+        Property existingProperty = new Property(); existingProperty.setId(propertyId); existingProperty.setTenantId(MOCK_TENANT_ID); existingProperty.setAddress("Old Address");
+        Property updatedDetails = new Property(); updatedDetails.setAddress("New Address");
         when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.of(existingProperty));
-        // Mock the save operation for the update
         when(propertyRepository.save(any(Property.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-
-        // Act
         Optional<Property> result = propertyService.updateProperty(propertyId, updatedDetails);
-
-        // Assert
         assertTrue(result.isPresent());
         assertEquals("New Address", result.get().getAddress());
-        assertEquals(MOCK_TENANT_ID, result.get().getTenantId()); // Tenant ID should remain
         verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
-        verify(propertyRepository).save(existingProperty); // Verify save was called on the updated object
+        verify(propertyRepository).save(existingProperty);
     }
 
     @Test
-    void whenUpdateProperty_givenInvalidIdOrTenant_thenReturnsEmpty() {
-        // Arrange
+    void whenUpdateProperty_givenInvalidIdOrTenant_asUser_thenReturnsEmpty() {
+        setupMockSecurityContext(false);
         Long propertyId = 99L;
-        Property updatedDetails = new Property();
-        updatedDetails.setAddress("New Address");
+        Property updatedDetails = new Property(); updatedDetails.setAddress("New Address");
         when(propertyRepository.findByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(Optional.empty());
-
-        // Act
         Optional<Property> result = propertyService.updateProperty(propertyId, updatedDetails);
-
-        // Assert
         assertFalse(result.isPresent());
         verify(propertyRepository).findByIdAndTenantId(propertyId, MOCK_TENANT_ID);
-        verify(propertyRepository, never()).save(any(Property.class)); // Ensure save wasn't called
+        verify(propertyRepository, never()).save(any(Property.class));
     }
 
+    // --- Tests for Delete Authorization ---
+
     @Test
-    void whenDeleteProperty_givenValidIdAndTenant_thenDeletesAndReturnsTrue() {
-        // Arrange
+    void whenDeleteProperty_givenValidIdAndTenant_asAdmin_thenDeletesAndReturnsTrue() {
+        setupMockSecurityContext(true); // Set context for ADMIN
         Long propertyId = 1L;
         when(propertyRepository.existsByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(true);
-        // No need to mock deleteById, just verify it's called
 
-        // Act
-        boolean result = propertyService.deleteProperty(propertyId);
-
-        // Assert
-        assertTrue(result);
+        assertDoesNotThrow(() -> {
+            boolean result = propertyService.deleteProperty(propertyId);
+            assertTrue(result);
+        });
         verify(propertyRepository).existsByIdAndTenantId(propertyId, MOCK_TENANT_ID);
-        verify(propertyRepository).deleteById(propertyId); // Verify deleteById was called
+        verify(propertyRepository).deleteById(propertyId);
     }
 
     @Test
-    void whenDeleteProperty_givenInvalidIdOrTenant_thenReturnsFalse() {
-        // Arrange
+    void whenDeleteProperty_givenValidIdAndTenant_asUser_thenThrowsAccessDenied() {
+        setupMockSecurityContext(false); // Set context for USER
+        Long propertyId = 1L;
+        when(propertyRepository.existsByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(true);
+
+        assertThrows(AccessDeniedException.class, () -> {
+            propertyService.deleteProperty(propertyId);
+        }, "Should throw AccessDeniedException for USER role trying to delete");
+
+        verify(propertyRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void whenDeleteProperty_givenInvalidIdOrTenant_asAdmin_thenReturnsFalse() {
+        setupMockSecurityContext(true); // Set context for ADMIN
         Long propertyId = 99L;
         when(propertyRepository.existsByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(false);
 
-        // Act
-        boolean result = propertyService.deleteProperty(propertyId);
-
-        // Assert
-        assertFalse(result);
+        assertDoesNotThrow(() -> {
+            boolean result = propertyService.deleteProperty(propertyId);
+            assertFalse(result);
+        });
         verify(propertyRepository).existsByIdAndTenantId(propertyId, MOCK_TENANT_ID);
-        verify(propertyRepository, never()).deleteById(anyLong()); // Ensure deleteById wasn't called
+        verify(propertyRepository, never()).deleteById(anyLong());
+    }
+
+    @Test
+    void whenDeleteProperty_givenInvalidIdOrTenant_asUser_thenThrowsAccessDenied() {
+        setupMockSecurityContext(false); // Set context for USER
+        Long propertyId = 99L;
+        when(propertyRepository.existsByIdAndTenantId(propertyId, MOCK_TENANT_ID)).thenReturn(false);
+
+        assertThrows(AccessDeniedException.class, () -> {
+            propertyService.deleteProperty(propertyId);
+        }, "Should throw AccessDeniedException for USER role even if property doesn't exist");
+
+        verify(propertyRepository, never()).deleteById(anyLong());
+        verify(propertyRepository, never()).existsByIdAndTenantId(anyLong(), anyLong());
     }
 }
-

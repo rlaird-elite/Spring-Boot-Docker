@@ -1,8 +1,10 @@
 package com.example.demo.user;
 
 import com.example.demo.exception.GlobalExceptionHandler;
-import com.example.demo.exception.UserAlreadyExistsException; // Import the custom exception
+import com.example.demo.exception.UserAlreadyExistsException;
+import com.example.demo.permission.Permission; // Import Permission
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach; // Import BeforeEach
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -11,11 +13,13 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication; // Import Authentication
+import org.springframework.security.core.Authentication;
 import org.springframework.test.web.servlet.MockMvc;
 
 // Import SecurityConfig and UserDetailsService for context
 import com.example.demo.SecurityConfig;
+
+import java.util.Set; // Import Set
 
 // Import static mock method
 import static org.mockito.Mockito.mock;
@@ -35,39 +39,54 @@ public class AuthControllerTest {
     @MockBean
     private AuthService authService;
     @MockBean
-    private AuthenticationManager authenticationManager; // Mock AuthenticationManager
+    private AuthenticationManager authenticationManager;
     @MockBean
-    private JwtTokenProvider jwtTokenProvider; // Mock JwtTokenProvider
+    private JwtTokenProvider jwtTokenProvider;
     @MockBean
-    private CustomUserDetailsService customUserDetailsService; // Needed by SecurityConfig
+    private CustomUserDetailsService customUserDetailsService; // Still needed by SecurityConfig
 
     @Autowired
     private ObjectMapper objectMapper;
 
+    // --- Add mock permission for tests ---
+    private Permission mockUserPermission;
+
+    @BeforeEach
+    void setupPermissions() {
+        // Setup mock permission object
+        mockUserPermission = new Permission(AuthServiceImpl.DEFAULT_USER_PERMISSION);
+        mockUserPermission.setId(100L);
+    }
+    // --- End permission setup ---
+
+
     @Test
     void whenRegisterUser_withValidData_thenReturnsOk() throws Exception {
+        // Use the two-argument constructor we defined
         UserRegistrationRequest request = new UserRegistrationRequest("test@example.com", "Password123");
 
-        // --- THIS IS THE FIX ---
-        // Ensure the User object returned by the mock has the Role set
+        // --- Update Mock User to use Permissions ---
         User registeredUser = new User();
         registeredUser.setId(1L);
         registeredUser.setUsername("test@example.com");
-        registeredUser.setRole(User.Role.USER); // Set the role here!
-        registeredUser.setTenantId(1L); // Also set tenantId for completeness
-        // --- END FIX ---
-
+        // Create a Set containing the mock permission
+        registeredUser.setPermissions(Set.of(mockUserPermission));
+        registeredUser.setTenantId(1L);
+        // --- End Update ---
 
         when(authService.registerNewUser(any(UserRegistrationRequest.class))).thenReturn(registeredUser);
 
         mockMvc.perform(post("/api/auth/register")
-                        .with(csrf()) // Add CSRF token for POST
+                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isOk()) // Expect 200 OK
+                .andExpect(status().isOk()) // Changed expectation from 500/error to 200 OK
                 .andExpect(jsonPath("$.id").value(1L))
                 .andExpect(jsonPath("$.username").value("test@example.com"))
-                .andExpect(jsonPath("$.role").value("USER")); // Can now assert role
+                // --- Assert Permission in response ---
+                // Check if the first permission name matches (adjust if multiple permissions expected)
+                .andExpect(jsonPath("$.permissions[0].name").value(AuthServiceImpl.DEFAULT_USER_PERMISSION));
+        // --- End Assertion ---
     }
 
     @Test
@@ -78,11 +97,11 @@ public class AuthControllerTest {
                 .thenThrow(new UserAlreadyExistsException("User already exists"));
 
         mockMvc.perform(post("/api/auth/register")
-                        .with(csrf()) // Add CSRF token for POST
+                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isConflict()) // Expect 409 Conflict
-                .andExpect(jsonPath("$.message").value("User already exists")); // Check the error message in JSON
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("User already exists"));
     }
 
     @Test
@@ -90,29 +109,24 @@ public class AuthControllerTest {
         LoginRequest loginRequest = new LoginRequest("test@example.com", "Password123");
         String fakeToken = "fake-jwt-token";
 
-        // Mock the Authentication object that AuthenticationManager returns
+        // Mock the Authentication object
         Authentication authentication = mock(Authentication.class);
         when(authentication.getName()).thenReturn("test@example.com");
 
-        // Mock AuthenticationManager to return the mock Authentication
+        // Mock AuthenticationManager
         when(authenticationManager.authenticate(
                 any(UsernamePasswordAuthenticationToken.class)))
                 .thenReturn(authentication);
 
-        // Mock JwtTokenProvider to return a fake token
+        // Mock JwtTokenProvider
         when(jwtTokenProvider.generateToken(any(Authentication.class))).thenReturn(fakeToken);
 
         mockMvc.perform(post("/api/auth/login")
-                        .with(csrf()) // Add CSRF token for POST
+                        .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value(fakeToken));
     }
-
-    // Add a test for invalid login credentials if needed
-    // @Test
-    // void whenLoginUser_withInvalidCredentials_thenReturnsUnauthorized() throws Exception { ... }
-
 }
 

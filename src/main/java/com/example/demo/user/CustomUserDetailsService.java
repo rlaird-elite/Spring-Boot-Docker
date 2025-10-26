@@ -5,8 +5,6 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList; // We'll use this for now
-
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
@@ -18,15 +16,29 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        // Find our custom User entity from the database
-        User ourUser = userRepository.findByUsername(username)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+        // Fetch the User entity from the repository using the username (email)
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() ->
+                        new UsernameNotFoundException("User not found with username: " + username));
 
-        // Convert our custom User entity into a Spring Security UserDetails object
-        return new org.springframework.security.core.userdetails.User(
-                ourUser.getUsername(),
-                ourUser.getPassword(),
-                new ArrayList<>() // We'll add authorities/roles here later
-        );
+        // The User entity itself now implements UserDetails correctly.
+        // It maps its Set<Permission> to Collection<GrantedAuthority> internally.
+        // So, we can just return the User object directly.
+        return user;
+
+        // --- OLD CODE (Removed) ---
+        // No longer need to manually build UserDetails here.
+        // return org.springframework.security.core.userdetails.User
+        //         .withUsername(user.getUsername())
+        //         .password(user.getPassword())
+        //         .authorities(user.getAuthorities()) // User.getAuthorities() handles the mapping
+        //         // Add account status flags if needed from User entity
+        //         .accountExpired(!user.isAccountNonExpired())
+        //         .accountLocked(!user.isAccountNonLocked())
+        //         .credentialsExpired(!user.isCredentialsNonExpired())
+        //         .disabled(!user.isEnabled())
+        //         .build();
+        // --- END OLD CODE ---
     }
 }
+

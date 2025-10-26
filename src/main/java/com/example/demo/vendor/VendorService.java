@@ -60,16 +60,20 @@ public class VendorService {
         return vendorRepository.findByIdAndTenantId(id, tenantId)
                 .map(existingVendor -> {
                     existingVendor.setName(vendorDetails.getName());
+                    // --- FIX: Corrected typo from getSpecialialty() to getSpecialty() ---
                     existingVendor.setSpecialty(vendorDetails.getSpecialty());
-                    existingVendor.setContactInfo(vendorDetails.getContactInfo());
+                    // --- END FIX ---
+                    existingVendor.setPhone(vendorDetails.getPhone());
                     return vendorRepository.save(existingVendor);
                 });
     }
 
     // --- SECURE THE DELETE METHOD ---
     @Transactional
-    @PreAuthorize("hasRole('ADMIN')") // Only allow users with ROLE_ADMIN
+    // --- FIX: Change hasRole('ADMIN') to hasAuthority('PERMISSION_DELETE_VENDOR') ---
+    @PreAuthorize("hasAuthority('PERMISSION_DELETE_VENDOR')")
     public boolean deleteVendor(Long id) {
+        // --- END FIX ---
         Long tenantId = getCurrentTenantId();
         if (vendorRepository.existsByIdAndTenantId(id, tenantId)) {
             vendorRepository.deleteById(id);

@@ -1,6 +1,7 @@
 package com.example.demo.property;
 
 import com.example.demo.user.User; // Import User
+import org.springframework.security.access.prepost.PreAuthorize; // Import PreAuthorize
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -14,7 +15,6 @@ import java.util.Optional;
 public class PropertyService {
 
     private final PropertyRepository propertyRepository;
-    // No longer needs UserRepository directly, tenantId comes from security context
 
     public PropertyService(PropertyRepository propertyRepository) {
         this.propertyRepository = propertyRepository;
@@ -24,28 +24,17 @@ public class PropertyService {
     private Long getCurrentTenantId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !authentication.isAuthenticated() || authentication.getPrincipal().equals("anonymousUser")) {
-            // Handle cases where there is no authenticated user
-            // Depending on your security setup, this might throw an exception earlier
-            // Or you might want to throw a specific exception here
             throw new IllegalStateException("User must be authenticated to perform this action.");
         }
-
         Object principal = authentication.getPrincipal();
-
-        if (principal instanceof User) { // Assuming your UserDetails implementation is your User entity
+        if (principal instanceof User) {
             return ((User) principal).getTenantId();
-        } else if (principal instanceof UserDetails) {
-            // If the principal is a standard UserDetails, you might need another way
-            // to fetch the tenantId, perhaps by loading the full User entity
-            // based on the username ((UserDetails) principal).getUsername()
-            // For now, let's assume it's our User entity.
-            throw new IllegalStateException("Unexpected principal type found in security context.");
         } else {
-            throw new IllegalStateException("Authentication principal is not an instance of UserDetails.");
+            throw new IllegalStateException("Authentication principal is not the expected User type.");
         }
     }
 
-
+    // No specific auth needed beyond being logged in for tenant
     public List<Property> getAllProperties() {
         Long tenantId = getCurrentTenantId();
         return propertyRepository.findAllByTenantId(tenantId);
@@ -56,34 +45,37 @@ public class PropertyService {
         return propertyRepository.findByIdAndTenantId(id, tenantId);
     }
 
-    @Transactional // Good practice for create/update/delete
+    // No specific auth needed beyond being logged in for tenant
+    @Transactional
     public Property createProperty(Property property) {
         Long tenantId = getCurrentTenantId();
-        property.setTenantId(tenantId); // Ensure the property belongs to the current tenant
+        property.setTenantId(tenantId);
         return propertyRepository.save(property);
     }
 
+    // No specific auth needed beyond being logged in for tenant
     @Transactional
     public Optional<Property> updateProperty(Long id, Property propertyDetails) {
         Long tenantId = getCurrentTenantId();
-        // Find the existing property *belonging to the current tenant*
         return propertyRepository.findByIdAndTenantId(id, tenantId)
                 .map(existingProperty -> {
                     existingProperty.setAddress(propertyDetails.getAddress());
                     existingProperty.setType(propertyDetails.getType());
                     existingProperty.setBedrooms(propertyDetails.getBedrooms());
                     existingProperty.setBathrooms(propertyDetails.getBathrooms());
-                    // tenantId does not change during update
                     return propertyRepository.save(existingProperty);
                 });
     }
 
+    // --- SECURE THE DELETE METHOD ---
     @Transactional
+    // --- FIX: Add PreAuthorize annotation ---
+    @PreAuthorize("hasAuthority('PERMISSION_DELETE_PROPERTY')") // Use hasAuthority
     public boolean deleteProperty(Long id) {
+        // --- END FIX ---
         Long tenantId = getCurrentTenantId();
-        // Check if the property exists *and* belongs to the current tenant before deleting
         if (propertyRepository.existsByIdAndTenantId(id, tenantId)) {
-            propertyRepository.deleteById(id); // Standard deleteById is fine after existence check
+            propertyRepository.deleteById(id);
             return true;
         } else {
             return false;

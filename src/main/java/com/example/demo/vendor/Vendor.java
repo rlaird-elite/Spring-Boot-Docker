@@ -20,7 +20,7 @@ public class Vendor {
 
     private String specialty; // e.g., Plumbing, Electrical, HVAC
 
-    private String contactInfo;
+    private String phone;
 
     // --- NEW: Add Tenant ID ---
     @Column(name = "tenant_id", nullable = false)

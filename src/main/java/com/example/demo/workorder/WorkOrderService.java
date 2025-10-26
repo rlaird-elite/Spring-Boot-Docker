@@ -119,8 +119,10 @@ public class WorkOrderService {
 
     // --- SECURE THE DELETE METHOD ---
     @Transactional
-    @PreAuthorize("hasRole('ADMIN')") // Only allow users with ROLE_ADMIN
+    // --- FIX: Change hasRole('ADMIN') to hasAuthority(...) ---
+    @PreAuthorize("hasAuthority('PERMISSION_DELETE_WORK_ORDER')") // Check for the specific permission
     public boolean deleteWorkOrder(Long id) {
+        // --- END FIX ---
         Long tenantId = getCurrentTenantId();
         if (workOrderRepository.existsByIdAndTenantId(id, tenantId)) {
             workOrderRepository.deleteById(id);
